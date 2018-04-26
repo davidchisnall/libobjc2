@@ -110,6 +110,7 @@ struct objc_alias
 /**
  * Type of the NSConstantString structure.
  */
+// begin: NSConstantString
 struct nsstr
 {
 	/** Class pointer. */
@@ -142,6 +143,7 @@ struct nsstr
 	 */
 	const char *data;
 };
+// end: NSConstantString
 
 // begin: objc_init
 struct objc_init

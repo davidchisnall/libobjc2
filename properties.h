@@ -198,7 +198,7 @@ struct objc_property_list
 	 * metadata.
 	 */
 	int size;
-	/*
+	/**
 	 * The next property in a linked list.
 	 */
 	struct objc_property_list *next;

@@ -174,6 +174,7 @@ As described in \fref{chap:selectors}, these are deduplicated by the linker, so 
 			\ccode{proto_} & \ccode{__objc_protocols}\\
 			\ccode{proto_ref_} & \ccode{__objc_protocol_refs}\\
 			\ccode{alias} & \ccode{__objc_class_aliases}\\
+			\ccode{strings} & \ccode{__objc_constant_string}
 		\end{tabular}
 		\caption{\label{tab:sections}Section names for Objective-C components.}
 	\end{center}
@@ -187,6 +188,9 @@ These are described in \Fref{sec:classref} and provide loose coupling between th
 
 The \ccode{__objc_protocol_refs} section contains variables that point to protocols in the same way.
 This indirection layer makes it possible for future versions of the ABI to make incompatible changes to the protocol structure and for the runtime to upgrade old libraries on load.
+
+The \ccode{__objc_constant_string} section contains constant Objective-C strings.
+These are defined as described in \Fref{chap:constantstrings}.
 
 \section{Compiler responsibilities}
 
@@ -366,6 +370,54 @@ The current version of the runtime ignores this section, but if a future runtime
 
 \chapter{Protocols}
 \label{chap:protocols}
+
+\chapter{Constant string objects}
+\label{chap:constantstrings}
+
+The string representation inherited from NeXT contained only a pointer to a buffer and a length.
+This was problematic for a number of reasons.
+The first was that it did not specify the encoding, so it has to be assumed to be UTF-8.
+The Foundation APIs expose UTF-16 code units as the fundamental unit of abstraction for Objective-C strings and converting from UTF-8 to UTF-16 can be nontrivial.
+Conversely, it is difficult to fast-path operations on ASCII (which is a fixed-length encoding and trivial to convert to UTF-16).
+
+The biggest limitation of this format, from a performance perspective, is the lack of any space to store the hash of the string.
+When strings are used as dictionary keys (as constant strings frequently are), having a fast hash implementation becomes critical for performance.
+
+\sloppy
+The new design is shown in \Fref{lst:nsconstantstring}.
+The \ccode{isa} pointer is initialised to point to the \objc{NSConstantString} class (i.e. to the {\ccode{._OBJC_CLASS_NSConstantString}} symbol).
+If the runtime updates a class, it can update the \ccode{isa} pointer on load.
+
+The low 16 bits of the flags field are reserved for compiler-generated information.
+Currently, the low two bits contain a value indicated in \Fref{tab:nsconstantstring} and the remaining 14 bits are reserved for future use.
+Currently, clang will generate only ASCII or UTF-16 strings.
+It is not clear whether generating UTF-8 or UTF-32 is actually useful given the constraints of the \objc{NSString} APIs.
+The top 16 bits are reserved for the \ccode{NSConstantString} class (or equivalent) to use.
+
+The \ccode{length} field specifies the number of UTF-16 code units in the string, the \ccode{size} field specifies the number of bytes.
+In encodings other than UTF-8, it should be trivial to calculate one of these from the other, but in UTF-8 the relationship between the two is data dependent and both are useful when processing character data.
+
+The \ccode{hash} field is for storing a hash value.
+This is initialised to zero by the compiler, though a future version of the ABI may generate string hashes at compile time and use a flag bit to indicate that this has been done (and what the algorithm is), allowing the string implementation to select a different hash algorithm at run time if desired.
+
+The final field, \ccode{data}, is a pointer to the string data.
+
+\inccode{loader.c}{nsconstantstring}{NSConstantString}{The constant string structure.}
+
+\begin{table}
+	\begin{center}
+		\begin{tabular}{c|c}
+			Value & Encoding \\ \hline
+			0& ASCII \\
+			1& UTF-8 \\
+			2& UTF-16 \\
+			3& UTF-32
+		\end{tabular}
+		\caption{\label{tab:nsconstantstring} Encoding values for constant string instances.}
+	\end{center}
+\end{table}
+
+Each sting is emitted in the \ccode{__objc_constant_string} section and passed into the runtime entry point.
 
 \chapter{Encoding strings}
 
