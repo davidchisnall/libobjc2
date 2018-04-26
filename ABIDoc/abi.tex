@@ -137,6 +137,13 @@ The Mach-O binary format (used by NeXT and Apple) provides a mechanism for regis
 In addition to COMDATs, modern linkers support generating symbols that correspond to the start and end of sections.
 This makes it possible for the new ABI to emit all declarations of a particular kind in a section and for the runtime to then receive an array of all of the objects in that section.
 
+\section{Forward compatibility}
+
+A lot of the ugliness of the original GNUstep ABI resulted from the GCC ABI not being designed with forward compatibility in mind.
+The new ABI attempts to ensure that future versions of the ABI can modify any of the runtime structures without requiring recompilation.
+As such, all accesses to fixed-layout structures must be either via an indirection layer or in structures that are visible to the runtime.
+
+
 \chapter{Entry point}
 
 The legacy GCC ABI provided a \ccode{__objc_exec_class} function that registered all of the Objective-C data for a single compilation unit.
@@ -234,9 +241,10 @@ This mangling prevents conflicts with symbol versioning (which uses the @ charac
 This deduplication is not required for correctness: the runtime ensures that selectors have unique indexes, but should reduce the binary size.
 
 \chapter{Classes}
+\label{chap:class}
 
 The class structure is shown in \Fref{lst:class}.
-Each class is emitted as an instance of this structure as a symbol called \ccode{_OBJC_CLASS_\{class name\}}.
+Each class is emitted as an instance of this structure as a symbol called \ccode{._OBJC_CLASS_\{class name\}}.
 The \ccode{isa} pointer for the class is initialised to point to another class structure describing the metaclass, in which all class methods and properties are defined.
 
 The \ccode{super_class} field is initialised to the class structure for the superclass.
@@ -333,6 +341,7 @@ Note that the selector is typed and incorporates the traditional type encoding.
 This allows the runtime to return either the traditional or extended type encoding, as required.
 
 \subsection{Protocols}
+\label{sec:protocollist}
 
 Protocols adopted by a class are stored in the \ccode{objc_protocol_list} structure, described in \Fref{lst:protocollist}.
 These do not have a field indicating the size, because protocols are referenced by pointer.
@@ -344,7 +353,7 @@ Explicit \objc{@protocol} references are handled via an indirection layer, but i
 If a future version of the runtime wishes to update the protocol structure then it is able to do so and update the pointers in the protocol list to point to the upgraded structures.
 
 \subsection{Declared properties}
-
+\label{sec:propertylist}
 
 Declared properties are defined in list shown in \Fref{lst:propertylist}, which follows the structure outlined in \Fref{sec:metadata}.
 The entries in the list are elements of the \ccode{struct objc_property} structure, described in \Fref{lst:property}.
@@ -358,19 +367,73 @@ Future versions of the ABI may add additional fields, in which case they should 
 \section{Class references}
 \label{sec:classref}
 
-Each entry in the \ccode{__objc_class_refs} section is a symbol (in a COMDAT of the same name) called \ccode{_OBJC_CLASS_REF_\{class name\}}, which is initialised to point to a variable called \ccode{_OBJC_CLASS_\{class name\}}, which is the symbol for the class.
-This and the class structure are the \textit{only} place where the \ccode{_OBJC_CLASS_\{class name\}} symbols may be referenced.
+Each entry in the \ccode{__objc_class_refs} section is a symbol (in a COMDAT of the same name) called \ccode{._OBJC_REF_CLASS_\{class name\}}, which is initialised to point to a variable called \ccode{._OBJC_CLASS_\{class name\}}, which is the symbol for the class.
+This and the class structure are the \textit{only} place where the \ccode{._OBJC_CLASS_\{class name\}} symbols may be referenced.
 
-All other accesses to the class (i.e. from message sends to classes or to \objc{super}) must be via a load of the \ccode {_OBJC_CLASS_REF_\{class name\}} variable.
+All other accesses to the class (i.e. from message sends to classes or to \objc{super}) must be via a load of the \ccode {._OBJC_REF_CLASS_\{class name\}} variable.
 
 The current version of the runtime ignores this section, but if a future runtime changes the class structure then it can update these pointers to heap-allocated versions of the new structure.
 
 
 \chapter{Categories}
 
+Categories provide a mechanism for adding methods and properties to existing classes.
+For each category, the compiler generates a structure as shown in \Fref{lst:category} in the \ccode{__objc_cats} section.
+
+\inccode{category.h}{category}{objc_category}{The category structure.}
+
+The \ccode{name} field specifies the name of this category.
+This is used solely for debugging.
+The \ccode{class_name} field specifies the name of the class.
+This is used instead of a direct reference to the class structure to allow categories to be loaded independently of the class to which they are applied.
+
+The remaining fields contain the same structures as classes and are described in \Fref{chap:class}.
+Each of these structures contains a \ccode{next} field that allows the category versions to be added to the front of a linked list.
+All of the structures attached to classes are allowed in categories, with the exception of instance variables (which would change the class size).
+
+\sloppy
+Categories define extra state for a class \textit{pair}.
+Objective-C classes follow the Smalltalk model, where classes describe objects and metaclasses describe objects.
+There is no analogous metacategory structure: the \ccode{class_methods} and \ccode{class_properties} fields in a category apply to the metaclass, whereas the \ccode{instance_methods} and \ccode{properties} fields refer to the class.
+
+Note that there is no \ccode{class_protocols} field.
+Objective-C protocols describe both class and instance methods (somewhat breaking the metaclass model) and so are applied to the class and not the metaclass, even if they describe only class methods.
+
 \chapter{Protocols}
 \label{chap:protocols}
 
+Objective-C protocols are represented by a structure with the name \ccode{._OBJC_PROTOCOL_{Protocol name}} as shown in \Fref{lst:protocol}, in the \ccode{__objc_protocols} section.
+The compiler is responsible for also emitting a symbol with the name \ccode{._OBJC_REF_PROTOCOL_{Protocol name}} in the \ccode{__objc_protocol_refs} section, initialised to point to the first symbol.
+All references from \objc{@protocol} directives must load from the second symbol.
+Both symbols are in COMDATs and have hidden visibility.
+It is the responsibility of the linker to ensure that only one instance of a protocol exists in a binary and the responsibility of the runtime to ensure that all of the reference variables point to the canonical copy of the protocol structure.
+
+The protocol structure contains an \ccode{isa} pointer, which is initialised by the compiler to the version of the protocol.
+The version described in this document is 4.
+Version 3 was used by the previous GNUstep ABI, version 2 by the GCC runtime.
+
+The \ccode{name} field contains the name of the protocol, as a null-terminated C string.
+The \ccode{protocol_list} field describes the protocols that this protocol conforms to.
+This structure is identical to the version used by classes, described in \Fref{sec:protocollist}.
+
+Protocols can define properties that are either optional or required and apply to either the class or the instance.
+These are defined by the last four fields, which are identical to their counterparts in the class structure, descried in \Fref{sec:propertylis}
+
+\inccode{protocol.h}{protocol}{objc_protocol}{The protocol structure.}
+
+The remaining four fields define class and instance methods that are either required by or optional in this protocol.
+These do not use the same format as class method lists, because they contain only metadata and no implementation.
+Instead, they use an array described in \Fref{lst:protocolmethodlist} of the method description structures described in \Fref{lst:protocolmethod}.
+
+As with other structures used by the runtime, the method description list structure contains a count of the number of elements and the size of an individual element.
+This allows the structure to be extended without breaking existing runtime implementations.
+
+\inccode{protocol.h}{protocolmethodlist}{objc_protocol_method_description_list}{The protocol method list structure.}
+
+The method description itself contains only the selector and the extended type encoding.
+Unlike the class version, there is no pointer to the method, because protocols don't contain methods.
+
+\inccode{protocol.h}{protocolmethod}{objc_protocol_method_description}{The protocol method description structure.}
 \chapter{Constant string objects}
 \label{chap:constantstrings}
 

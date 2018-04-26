@@ -5,6 +5,7 @@
  * This provides a set of new definitions that are used to replace those
  * contained within a class.
  */
+// begin: objc_category
 struct objc_category 
 {
 	/** 
@@ -36,6 +37,7 @@ struct objc_category
 	 */
 	struct objc_property_list *class_properties;
 };
+// end: objc_category
 
 struct objc_category_gcc
 {

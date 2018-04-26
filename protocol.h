@@ -43,6 +43,7 @@ enum protocol_version
 /**
  * A description of a method in a protocol.
  */
+// begin: objc_protocol_method_description
 struct objc_protocol_method_description
 {
 	/**
@@ -54,7 +55,9 @@ struct objc_protocol_method_description
 	 */
 	const char *types;
 };
+// end: objc_protocol_method_description
 
+// begin: objc_protocol_method_description_list
 struct objc_protocol_method_description_list
 {
 	/**
@@ -70,6 +73,7 @@ struct objc_protocol_method_description_list
 	 */
 	struct objc_protocol_method_description methods[];
 };
+// end: objc_protocol_method_description_list
 
 /**
  * Returns a pointer to the method inside the method description list
@@ -86,6 +90,10 @@ protocol_method_at_index(struct objc_protocol_method_description_list *l, int i)
 	return (struct objc_protocol_method_description*)(((char*)l->methods) + (i * l->size));
 }
 
+/**
+ * Structure describing a protocol.
+ */
+// begin: objc_protocol
 struct objc_protocol
 {
 	/**
@@ -135,6 +143,7 @@ struct objc_protocol
 	 */
 	struct objc_property_list           *optional_class_properties;
 };
+// end: objc_protocol
 
 struct objc_protocol_gcc
 {
